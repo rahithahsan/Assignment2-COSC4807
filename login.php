@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'config.php';
+require_once 'db.php';
 
 /* ---------- flash message handling ---------- */
 $notice = '';
@@ -20,7 +20,7 @@ if (!empty($_SESSION['authenticated'])) {
 $now = time();
 if (isset($_SESSION['lockout_until']) && $now < $_SESSION['lockout_until']) {
   $remaining = $_SESSION['lockout_until'] - $now;
-  $error = "Too many failed attempts. Try again in {$remaining} s.";
+  $error = "Too many failed attempts. Try again in {$remaining} s.";
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   $u = trim($_POST['username'] ?? '');
@@ -28,9 +28,15 @@ if (isset($_SESSION['lockout_until']) && $now < $_SESSION['lockout_until']) {
 
   $_SESSION['failed'] = $_SESSION['failed'] ?? 0;
 
-  if ($u === VALID_USERNAME && $p === VALID_PASSWORD) {
+  /* ----------- DB lookup instead of hard-coded creds ----------- */
+  $pdo  = db();
+  $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
+  $stmt->execute([$u]);
+  $user = $stmt->fetch();
+
+  if ($user && password_verify($p, $user['password_hash'])) {
     /* --- success --- */
-    session_regenerate_id(true);
+    session_regenerate_id(true);          // anti-fixation
     $_SESSION['authenticated'] = true;
     $_SESSION['username']      = $u;
     unset($_SESSION['failed'], $_SESSION['lockout_until']);
@@ -41,7 +47,7 @@ if (isset($_SESSION['lockout_until']) && $now < $_SESSION['lockout_until']) {
     $_SESSION['failed']++;
     if ($_SESSION['failed'] >= MAX_FAILED) {
       $_SESSION['lockout_until'] = $now + LOCKOUT_SECONDS;
-      $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
+      $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
     } else {
       $tries = MAX_FAILED - $_SESSION['failed'];
       $error = "Invalid credentials. {$tries} attempt(s) left.";
@@ -68,6 +74,8 @@ if (isset($_SESSION['lockout_until']) && $now < $_SESSION['lockout_until']) {
   </label><br><br>
   <button type="submit">Submit</button>
 </form>
+
+<p>Need an account? <a href="register.php">Register here</a></p>
 
 <?php if (!empty($error)): ?>
   <p style="color:red"><?= htmlspecialchars($error) ?></p>
