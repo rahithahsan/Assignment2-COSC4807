@@ -20,66 +20,62 @@ if (!empty($_SESSION['authenticated'])) {
 $now = time();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  /* ---- POST branch ---- */
 
   $u = trim($_POST['username'] ?? '');
   $p = $_POST['password'] ?? '';
 
-  /* --- make sure session vars are arrays --- */
-  if (!isset($_SESSION['failed']) || !is_array($_SESSION['failed'])) {
-      $_SESSION['failed'] = [];
-  }
-  if (!isset($_SESSION['lockout_until']) || !is_array($_SESSION['lockout_until'])) {
-      $_SESSION['lockout_until'] = [];
-  }
+  // ensure arrays
+  $_SESSION['failed']        = is_array($_SESSION['failed']        ?? null) ? $_SESSION['failed']        : [];
+  $_SESSION['lockout_until'] = is_array($_SESSION['lockout_until'] ?? null) ? $_SESSION['lockout_until'] : [];
 
   $userFailed  = $_SESSION['failed'][$u]        ?? 0;
   $userLockout = $_SESSION['lockout_until'][$u] ?? 0;
 
-  /* ---------- lockout check ---------- */
+  /* ---- lockout window ---- */
   if ($now < $userLockout) {
       $remaining = $userLockout - $now;
       $error = "Too many failed attempts. Try again in {$remaining} s.";
   } else {
-      // reset counter after lock-out expires
+
       if ($userLockout) {
+          // lockout expired – reset counter
           $userFailed = 0;
           unset($_SESSION['lockout_until'][$u]);
       }
 
-      /* ---------- DB lookup ---------- */
-      $pdo  = db();
-      $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
+      /* ---- DB lookup ---- */
+      $stmt = db()->prepare('SELECT * FROM users WHERE username = ?');
       $stmt->execute([$u]);
       $user = $stmt->fetch();
 
       $auth_ok = $user && password_verify($p, $user['password_hash']);
 
       if ($auth_ok) {
-          /* --- success --- */
           session_regenerate_id(true);
           $_SESSION['authenticated'] = true;
           $_SESSION['username']      = $u;
           unset($_SESSION['failed'][$u], $_SESSION['lockout_until'][$u]);
-          header('Location: index.php');
-          exit;
+          header('Location: index.php'); exit;
       }
 
-      /* ---------- failure for THIS user ---------- */
-      $userFailed++;
-      $_SESSION['failed'][$u] = $userFailed;
+      /* ---------- failure path ---------- */
+      if ($user) {
+          // only increment / lock out for existing usernames
+          $userFailed++;
+          $_SESSION['failed'][$u] = $userFailed;
 
-      if ($userFailed >= MAX_FAILED) {
-          $_SESSION['lockout_until'][$u] = $now + LOCKOUT_SECONDS;
-          $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
+          if ($userFailed >= MAX_FAILED) {
+              $_SESSION['lockout_until'][$u] = $now + LOCKOUT_SECONDS;
+              $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
+          } else {
+              $tries = MAX_FAILED - $userFailed;
+              $error = "Invalid password. {$tries} attempt(s) left.";
+          }
       } else {
-          $tries = MAX_FAILED - $userFailed;
-          $error = $user
-                   ? "Invalid password. {$tries} attempt(s) left."
-                   : "User not found. {$tries} attempt(s) left.";
+          // unknown username – show message but DON’T count toward lockout
+          $error = "User not found.";
       }
   }
-  /* ---- end POST branch ---- */
 }
 ?>
 <!DOCTYPE html>
@@ -87,29 +83,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
   <meta charset="UTF-8">
   <title>Login</title>
+
+  <!-- Bootstrap & Feather icons -->
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://unpkg.com/feather-icons"></script>
 </head>
-<body>
-<h2>Login</h2>
+<body class="bg-light d-flex justify-content-center align-items-center vh-100">
 
-<?php if ($notice): ?>
-  <p style="color:blue"><?= htmlspecialchars($notice) ?></p>
-<?php endif; ?>
+<div class="card shadow p-4" style="min-width: 360px;">
+  <h3 class="mb-3">Log in</h3>
 
-<form method="post">
-  <label>Username
-    <input type="text" name="username" required autocomplete="username">
-  </label><br><br>
-  <label>Password
-    <input type="password" name="password" required autocomplete="current-password">
-  </label><br><br>
-  <button type="submit">Submit</button>
-</form>
+  <?php if ($notice): ?>
+    <div class="alert alert-info"><?= htmlspecialchars($notice) ?></div>
+  <?php endif; ?>
+  <?php if (!empty($error)): ?>
+    <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
+  <?php endif; ?>
 
-<p>Need an account? <a href="register.php">Register here</a></p>
+  <form method="post">
+    <div class="mb-3">
+      <label class="form-label">Username</label>
+      <input type="text" name="username" class="form-control" required autocomplete="username">
+    </div>
 
-<?php if (!empty($error)): ?>
-  <p style="color:red"><?= htmlspecialchars($error) ?></p>
-<?php endif; ?>
+    <div class="mb-3 position-relative">
+      <label class="form-label">Password</label>
+      <input type="password" name="password" id="pwd" class="form-control" required autocomplete="current-password">
+      <span class="position-absolute top-50 end-0 translate-middle-y me-3" id="togglePwd" style="cursor:pointer">
+        <i data-feather="eye"></i>
+      </span>
+    </div>
 
+    <button class="btn btn-primary w-100">Submit</button>
+  </form>
+
+  <hr>
+  <p class="text-center mb-0">
+    Need an account?
+    <a href="register.php">Register here</a>
+  </p>
+</div>
+
+<script>
+const pwd = document.getElementById('pwd');
+document.getElementById('togglePwd').addEventListener('click', () => {
+  pwd.type = (pwd.type === 'password') ? 'text' : 'password';
+});
+feather.replace();
+</script>
 </body>
 </html>
