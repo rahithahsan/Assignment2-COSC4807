@@ -22,44 +22,52 @@ if (isset($_SESSION['lockout_until']) && $now < $_SESSION['lockout_until']) {
   $remaining = $_SESSION['lockout_until'] - $now;
   $error = "Too many failed attempts. Try again in {$remaining} s.";
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  /* --- POST branch --- */
 
   $u = trim($_POST['username'] ?? '');
   $p = $_POST['password'] ?? '';
 
   $_SESSION['failed'] = $_SESSION['failed'] ?? 0;
 
-  /* ----------- DB lookup ----------- */
+  // ---------- DB lookup ----------
   $pdo  = db();
   $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
   $stmt->execute([$u]);
   $user = $stmt->fetch();
 
-  if (!$user) {                        // --- username not found ---
-    $error = 'User not found.';
-    $_SESSION['failed']++;
-  } elseif (password_verify($p, $user['password_hash'])) {
+  $auth_ok = $user && password_verify($p, $user['password_hash']);
+
+  if ($auth_ok) {
     /* --- success --- */
-    session_regenerate_id(true);       // anti-fixation
+    session_regenerate_id(true);
     $_SESSION['authenticated'] = true;
     $_SESSION['username']      = $u;
     unset($_SESSION['failed'], $_SESSION['lockout_until']);
     header('Location: index.php');
     exit;
-  } else {                             // --- password wrong ---
-    $_SESSION['failed']++;
-    $error = 'Invalid password.';
   }
 
-  /* --- lockout check after increment --- */
+  /* ---------- failure path ---------- */
+  $_SESSION['failed']++;
+
   if ($_SESSION['failed'] >= MAX_FAILED) {
     $_SESSION['lockout_until'] = $now + LOCKOUT_SECONDS;
     $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
+  } else {
+    $tries = MAX_FAILED - $_SESSION['failed'];
+    $error = $user
+           ? "Invalid password. {$tries} attempt(s) left."
+           : "User not found. {$tries} attempt(s) left.";
   }
+  /* --- end POST branch --- */
 }
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Login</title></head>
+<head>
+  <meta charset="UTF-8">
+  <title>Login</title>
+</head>
 <body>
 <h2>Login</h2>
 
