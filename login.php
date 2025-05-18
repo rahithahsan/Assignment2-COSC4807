@@ -16,50 +16,70 @@ if (!empty($_SESSION['authenticated'])) {
   exit;
 }
 
-/* ---------- lockout + login logic ---------- */
+/* ---------- per-user lockout + login logic ---------- */
 $now = time();
-if (isset($_SESSION['lockout_until']) && $now < $_SESSION['lockout_until']) {
-  $remaining = $_SESSION['lockout_until'] - $now;
-  $error = "Too many failed attempts. Try again in {$remaining} s.";
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  /* --- POST branch --- */
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  /* ---- POST branch ---- */
 
   $u = trim($_POST['username'] ?? '');
   $p = $_POST['password'] ?? '';
 
-  $_SESSION['failed'] = $_SESSION['failed'] ?? 0;
-
-  // ---------- DB lookup ----------
-  $pdo  = db();
-  $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
-  $stmt->execute([$u]);
-  $user = $stmt->fetch();
-
-  $auth_ok = $user && password_verify($p, $user['password_hash']);
-
-  if ($auth_ok) {
-    /* --- success --- */
-    session_regenerate_id(true);
-    $_SESSION['authenticated'] = true;
-    $_SESSION['username']      = $u;
-    unset($_SESSION['failed'], $_SESSION['lockout_until']);
-    header('Location: index.php');
-    exit;
+  /* --- make sure session vars are arrays --- */
+  if (!isset($_SESSION['failed']) || !is_array($_SESSION['failed'])) {
+      $_SESSION['failed'] = [];
+  }
+  if (!isset($_SESSION['lockout_until']) || !is_array($_SESSION['lockout_until'])) {
+      $_SESSION['lockout_until'] = [];
   }
 
-  /* ---------- failure path ---------- */
-  $_SESSION['failed']++;
+  $userFailed  = $_SESSION['failed'][$u]        ?? 0;
+  $userLockout = $_SESSION['lockout_until'][$u] ?? 0;
 
-  if ($_SESSION['failed'] >= MAX_FAILED) {
-    $_SESSION['lockout_until'] = $now + LOCKOUT_SECONDS;
-    $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
+  /* ---------- lockout check ---------- */
+  if ($now < $userLockout) {
+      $remaining = $userLockout - $now;
+      $error = "Too many failed attempts. Try again in {$remaining} s.";
   } else {
-    $tries = MAX_FAILED - $_SESSION['failed'];
-    $error = $user
-           ? "Invalid password. {$tries} attempt(s) left."
-           : "User not found. {$tries} attempt(s) left.";
+      // reset counter after lock-out expires
+      if ($userLockout) {
+          $userFailed = 0;
+          unset($_SESSION['lockout_until'][$u]);
+      }
+
+      /* ---------- DB lookup ---------- */
+      $pdo  = db();
+      $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
+      $stmt->execute([$u]);
+      $user = $stmt->fetch();
+
+      $auth_ok = $user && password_verify($p, $user['password_hash']);
+
+      if ($auth_ok) {
+          /* --- success --- */
+          session_regenerate_id(true);
+          $_SESSION['authenticated'] = true;
+          $_SESSION['username']      = $u;
+          unset($_SESSION['failed'][$u], $_SESSION['lockout_until'][$u]);
+          header('Location: index.php');
+          exit;
+      }
+
+      /* ---------- failure for THIS user ---------- */
+      $userFailed++;
+      $_SESSION['failed'][$u] = $userFailed;
+
+      if ($userFailed >= MAX_FAILED) {
+          $_SESSION['lockout_until'][$u] = $now + LOCKOUT_SECONDS;
+          $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
+      } else {
+          $tries = MAX_FAILED - $userFailed;
+          $error = $user
+                   ? "Invalid password. {$tries} attempt(s) left."
+                   : "User not found. {$tries} attempt(s) left.";
+      }
   }
-  /* --- end POST branch --- */
+  /* ---- end POST branch ---- */
 }
 ?>
 <!DOCTYPE html>
