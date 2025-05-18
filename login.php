@@ -28,30 +28,32 @@ if (isset($_SESSION['lockout_until']) && $now < $_SESSION['lockout_until']) {
 
   $_SESSION['failed'] = $_SESSION['failed'] ?? 0;
 
-  /* ----------- DB lookup instead of hard-coded creds ----------- */
+  /* ----------- DB lookup ----------- */
   $pdo  = db();
   $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
   $stmt->execute([$u]);
   $user = $stmt->fetch();
 
-  if ($user && password_verify($p, $user['password_hash'])) {
+  if (!$user) {                        // --- username not found ---
+    $error = 'User not found.';
+    $_SESSION['failed']++;
+  } elseif (password_verify($p, $user['password_hash'])) {
     /* --- success --- */
-    session_regenerate_id(true);          // anti-fixation
+    session_regenerate_id(true);       // anti-fixation
     $_SESSION['authenticated'] = true;
     $_SESSION['username']      = $u;
     unset($_SESSION['failed'], $_SESSION['lockout_until']);
     header('Location: index.php');
     exit;
-  } else {
-    /* --- failure --- */
+  } else {                             // --- password wrong ---
     $_SESSION['failed']++;
-    if ($_SESSION['failed'] >= MAX_FAILED) {
-      $_SESSION['lockout_until'] = $now + LOCKOUT_SECONDS;
-      $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
-    } else {
-      $tries = MAX_FAILED - $_SESSION['failed'];
-      $error = "Invalid credentials. {$tries} attempt(s) left.";
-    }
+    $error = 'Invalid password.';
+  }
+
+  /* --- lockout check after increment --- */
+  if ($_SESSION['failed'] >= MAX_FAILED) {
+    $_SESSION['lockout_until'] = $now + LOCKOUT_SECONDS;
+    $error = "Too many failed attempts. Locked for " . LOCKOUT_SECONDS . " s.";
   }
 }
 ?>
