@@ -38,7 +38,6 @@ This repository contains a complete login / registration system that persists us
 
 | File | Status | Role |
 |------|--------|------|
-| `config.php.dist` | **new** | DB host/user/port; password comes from secret. |
 | `config.php` | **updated** | Adds DB constants; removes `VALID_USERNAME/PASSWORD`. |
 | `db.php` | new | PDO singleton helper (`utf8mb4`, strict errors). |
 | `helpers.php` | new | `password_meets_policy()` regexes. |
@@ -55,7 +54,6 @@ This repository contains a complete login / registration system that persists us
 
 ```text
 .
-├── config.php.dist
 ├── db.php
 ├── helpers.php
 ├── migrations/
