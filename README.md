@@ -120,11 +120,10 @@ if ($now < $userLockout) { … }   // locked
 ## Quick start
 
 ```bash
-git clone https://github.com/<your‑username>/assignment2-login.git
+git clone https://github.com/rahithahsan/assignment2-login.git
 cd assignment2-login
 
-cp config.php.dist config.php          # edit if not using Replit Secret
-export DB_PASS=yourDbPassword          # or set in Replit Secrets
+export DB_PASS=yourDbPassword
 
 php -r "require 'db.php'; db()->exec(file_get_contents('migrations/001_create_users.sql'));"
 
